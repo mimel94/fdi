@@ -53,6 +53,8 @@ cont2 = 0
 cont3 = 0
 mensaje_socket = ''
 mensaje_error = ''
+rects = []
+make_rects = True
 
 # Load FaceNet model and configure placeholders for forward pass into the FaceNet model to calculate embeddings
 model_path = 'model/20170512-110547/20170512-110547.pb'
@@ -98,6 +100,8 @@ class VideoTransmision(MediaStreamTrack):
         global mensaje_socket
         global cont2
         global flag
+        global rects
+        global make_rects
 
         image = frame.to_ndarray(format="bgr24")        
         if self.accion == 'entrenar' :      
@@ -121,11 +125,35 @@ class VideoTransmision(MediaStreamTrack):
             if mensaje_socket:               
                 await self.socket.send_str(mensaje_socket)  
                 mensaje_socket = ''  
+        if make_rects:
+            make_rects = False
+            _, rects = get_faces_live(
+                    img =image,
+                    pnet=pnet,
+                    rnet=rnet,
+                    onet=onet,
+                    image_size=image_size
+                )
+            thread_rects = Timer(0.4,generate_rects)
+            thread_rects.start()
+        if rects:
+            for i in range(len(rects)):
+                rect = rects[i]
+                rect = [coordinate * 1 for coordinate in rect]
+                cv2.rectangle(
+                    img = image, 
+                    pt1=(rect[0], rect[1]),
+                    pt2=(rect[2], rect[3]),
+                    color=(85, 222, 172),
+                    thickness=2
+                )
         new_frame = VideoFrame.from_ndarray(image, format="bgr24")
         new_frame.pts = frame.pts
         new_frame.time_base = frame.time_base
         return new_frame
-
+def generate_rects():
+    global make_rects
+    make_rects = True
 def flagComparar(accion):
     global flag    
     flag = accion
@@ -278,11 +306,13 @@ async def offer(request):
         )
 
     session = aiohttp.ClientSession()
-    ws = await session.ws_connect(WS_SCHEMA + '://' + WS_URL +'?room=muestras_' + str(id_usuario))
-    await ws.send_str("{'accion':'iniciando','cantidad':'" + str(cuenta) + "'}")
+    ws = await session.ws_connect(WS_SCHEMA + '://' + WS_URL +'?room=muestras_' + str(id_usuario))  
 
     if os.path.exists(rutaHaar+'/'+str(id_usuario)+'.npy'):
-        await ws.send_str("{'accion':'entrenado'}")    
+        #await ws.send_str("{'accion':'entrenado'}")    
+        await ws.send_str("{'accion':'iniciando','status':'1'}")
+    else:
+        await ws.send_str("{'accion':'iniciando','status':'0'}")
 
     offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
